@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useSession } from "next-auth/react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 type AttendancePunch = {
@@ -57,6 +58,7 @@ export default function Home() {
   const [isSaving, setIsSaving] = useState(false);
   const [isFetchingAttendance, setIsFetchingAttendance] = useState(true);
   const { data: session, status } = useSession();
+  const router = useRouter();
 
   useEffect(() => {
     if (status === "loading") {
@@ -66,7 +68,10 @@ export default function Home() {
     if (!session) {
       return;
     }
-
+    if (session.user.role === "admin") {
+      router.push("/admin/dashboard");
+      return;
+    }
     let isActive = true;
 
     async function loadAttendance() {
