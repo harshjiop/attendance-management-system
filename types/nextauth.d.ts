@@ -5,6 +5,7 @@ declare module 'next-auth' {
         user: {
             _id?: string;
             name: string;
+            role?: "admin" | "user";
             isVerified?: boolean;
             image: string;
         } & DefaultSession['user'];
@@ -12,6 +13,7 @@ declare module 'next-auth' {
 
     interface User {
         _id?: string;
+        role?: "admin" | "user";
         isVerified?: boolean;
         image: string;
         name: string;
@@ -24,6 +26,7 @@ declare module 'next-auth' {
 declare module 'next-auth/jwt' {
     interface JWT {
         _id?: string;
+        role?: "admin" | "user";
         isVerified?: boolean;
         name: string;
         image: string;

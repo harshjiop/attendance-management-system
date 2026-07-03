@@ -30,7 +30,7 @@ export const authOptions: NextAuthOptions = {
 
             await dbConnect();
 
-            await UserModel.findOneAndUpdate(
+            const dbUser = await UserModel.findOneAndUpdate(
                 { email: user.email },
                 {
                     $set: {
@@ -47,7 +47,7 @@ export const authOptions: NextAuthOptions = {
                 { new: true, upsert: true }
             );
 
-            return true;
+            return !dbUser.isBlocked;
         },
 
         async jwt({ token, user }) {
@@ -67,6 +67,7 @@ export const authOptions: NextAuthOptions = {
 
                 if (userData) {
                     session.user._id = userData._id.toString();
+                    session.user.role = userData.role;
                     session.user.isVerified = userData.isVerified;
                     session.user.name = userData.name;
                     session.user.image = userData.image || "";
