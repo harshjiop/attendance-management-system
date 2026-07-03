@@ -5,15 +5,16 @@ import { authOptions } from "@/app/api/auth/[...nextauth]/options";
 import connectDB from "@/db/mongodb";
 import Attendance, { IPunch } from "@/models/attendance.model";
 import UserModel from "@/models/user.model";
+import {
+    formatDisplayDate,
+    formatPunchTime,
+    getDateKey,
+} from "@/lib/india-date";
 
 type SheetFile = {
     name: string;
     content: string;
 };
-
-function getToday() {
-    return new Date().toISOString().split("T")[0];
-}
 
 function isDateString(value: string) {
     return /^\d{4}-\d{2}-\d{2}$/.test(value);
@@ -30,19 +31,6 @@ function buildDateRange(startDate: string, endDate: string) {
     }
 
     return dates;
-}
-
-function formatColumnDate(date: string) {
-    const [year, month, day] = date.split("-");
-    return `${day}/${month}/${year}`;
-}
-
-function formatPunchTime(timestamp: Date) {
-    return new Intl.DateTimeFormat("en-IN", {
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: true,
-    }).format(timestamp);
 }
 
 function escapeXml(value: string) {
@@ -289,7 +277,7 @@ export async function GET(request: Request) {
     }
 
     const { searchParams } = new URL(request.url);
-    const today = getToday();
+    const today = getDateKey();
     const filter = searchParams.get("filter") || "today";
     const start = searchParams.get("startDate") || today;
     const end = searchParams.get("endDate") || today;
@@ -342,7 +330,7 @@ export async function GET(request: Request) {
     });
 
     const sheetRows = [
-        ["Name", "Email", ...dates.map(formatColumnDate)],
+        ["Name", "Email", ...dates.map(formatDisplayDate)],
         ...users.map((user) => {
             const userAttendance = attendanceByUser.get(user._id.toString());
 

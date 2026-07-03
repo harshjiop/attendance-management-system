@@ -1,12 +1,11 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
 import { signOut, useSession } from "next-auth/react";
 import Image from "next/image";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { LoginForm } from "./(auth)/account/_components/login-form";
+import { formatPunchTime } from "@/lib/india-date";
 
 type AttendancePunch = {
   type: "IN" | "OUT";
@@ -22,18 +21,18 @@ type AttendanceRecord = {
 function formatDisplayDate(dateValue?: string) {
   if (!dateValue) return "Today";
 
-  const parsedDate = new Date(`${dateValue}T00:00:00Z`);
+  const parsedDate = new Date(`${dateValue}T00:00:00+05:30`);
 
   if (Number.isNaN(parsedDate.getTime())) {
     return dateValue;
   }
 
-  return new Intl.DateTimeFormat("en-US", {
+  return new Intl.DateTimeFormat("en-IN", {
     weekday: "long",
-    month: "short",
-    day: "numeric",
+    day: "2-digit",
+    month: "2-digit",
     year: "numeric",
-    timeZone: "UTC",
+    timeZone: "Asia/Kolkata",
   }).format(parsedDate);
 }
 
@@ -46,10 +45,7 @@ function formatDisplayTime(timestamp?: string) {
     return timestamp;
   }
 
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(parsedTime);
+  return formatPunchTime(parsedTime);
 }
 
 export default function Home() {
@@ -112,7 +108,7 @@ export default function Home() {
     return () => {
       isActive = false;
     };
-  }, [session, status]);
+  }, [router, session, status]);
 
   if (status === "loading") {
     return (

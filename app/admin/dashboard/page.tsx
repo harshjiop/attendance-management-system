@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
+import { formatDisplayDate, getDateKey } from "@/lib/india-date";
 
 type PunchView = {
     type: "IN" | "OUT";
@@ -23,12 +24,11 @@ type StaffAttendanceRow = {
 type FilterType = "today" | "range";
 
 function getToday() {
-    return new Date().toISOString().split("T")[0];
+    return getDateKey();
 }
 
 function formatColumnDate(date: string) {
-    const [year, month, day] = date.split("-");
-    return `${day}/${month}/${year}`;
+    return formatDisplayDate(date);
 }
 
 function formatAttendance(attendance: AttendanceView | null) {

@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import Attendance, { IPunch } from "@/models/attendance.model";
 import connectDB from "@/db/mongodb";
 import { authOptions } from "../auth/[...nextauth]/options";
+import { getDateKey } from "@/lib/india-date";
 
 function getErrorMessage(error: unknown) {
     if (error instanceof Error) {
@@ -37,7 +38,7 @@ export async function GET() {
 
         await connectDB();
 
-        const today = new Date().toISOString().split("T")[0];
+        const today = getDateKey();
         const attendance = await Attendance.findOne({
             userId: new mongoose.Types.ObjectId(userId),
             date: today,
@@ -63,7 +64,7 @@ export async function POST(request: Request) {
         const body = await request.json();
         const { isMarkingIn, location } = body;
 
-        const today = new Date().toISOString().split("T")[0];
+        const today = getDateKey();
         const newStatus = isMarkingIn ? "IN" : "OUT";
 
         const existingAttendance = await Attendance.findOne({
