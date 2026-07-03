@@ -20,21 +20,8 @@ const navItems = [
     },
 ];
 
-export default function AdminTemplate({
-    children,
-}: {
-    children: React.ReactNode;
-}) {
-    const pathname = usePathname();
-    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-
-    // Close the mobile sidebar automatically when the route changes
-    useEffect(() => {
-        setIsSidebarOpen(false);
-    }, [pathname]);
-
-    // Shared Sidebar Content (so we don't repeat it for mobile and desktop)
-    const SidebarContent = () => (
+function SidebarContent({ pathname }: { pathname: string }) {
+    return (
         <div className="flex h-full flex-col bg-background">
             <div className="flex h-14 items-center border-b px-4 md:h-[60px] md:px-6">
                 <Link href="/admin/dashboard" className="text-lg font-semibold tracking-tight">
@@ -68,12 +55,28 @@ export default function AdminTemplate({
             </div>
         </div>
     );
+}
+
+export default function AdminTemplate({
+    children,
+}: {
+    children: React.ReactNode;
+}) {
+    const pathname = usePathname();
+    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+    // Close the mobile sidebar automatically when the route changes
+    useEffect(() => {
+        const timeoutId = window.setTimeout(() => setIsSidebarOpen(false), 0);
+
+        return () => window.clearTimeout(timeoutId);
+    }, [pathname]);
 
     return (
         <div className="min-h-screen bg-muted">
             {/* Desktop Sidebar */}
             <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r md:flex">
-                <SidebarContent />
+                <SidebarContent pathname={pathname} />
             </aside>
 
             {/* Mobile Sidebar Overlay */}
@@ -100,7 +103,7 @@ export default function AdminTemplate({
                         <X className="size-5" />
                     </button>
                 </div>
-                <SidebarContent />
+                <SidebarContent pathname={pathname} />
             </aside>
 
             {/* Main Content Area */}
