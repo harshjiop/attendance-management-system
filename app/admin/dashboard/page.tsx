@@ -41,252 +41,6 @@ function formatAttendance(attendance: AttendanceView | null) {
         .join(" | ");
 }
 
-function escapeXml(value: string) {
-    return value
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&apos;");
-}
-
-function crc32(bytes: Uint8Array) {
-    let crc = 0xffffffff;
-
-    for (const byte of bytes) {
-        crc ^= byte;
-
-        for (let index = 0; index < 8; index += 1) {
-            crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
-        }
-    }
-
-    return (crc ^ 0xffffffff) >>> 0;
-}
-
-function writeString(view: DataView, offset: number, value: string) {
-    for (let index = 0; index < value.length; index += 1) {
-        view.setUint8(offset + index, value.charCodeAt(index));
-    }
-}
-
-function createZip(files: { name: string; content: string }[]) {
-    const encoder = new TextEncoder();
-    const encodedFiles = files.map((file) => ({
-        ...file,
-        nameBytes: encoder.encode(file.name),
-        contentBytes: encoder.encode(file.content),
-    }));
-    const localSize = encodedFiles.reduce(
-        (total, file) => total + 30 + file.nameBytes.length + file.contentBytes.length,
-        0
-    );
-    const centralSize = encodedFiles.reduce(
-        (total, file) => total + 46 + file.nameBytes.length,
-        0
-    );
-    const endSize = 22;
-    const buffer = new ArrayBuffer(localSize + centralSize + endSize);
-    const view = new DataView(buffer);
-    let offset = 0;
-    const centralDirectory: {
-        file: (typeof encodedFiles)[number];
-        crc: number;
-        localOffset: number;
-    }[] = [];
-
-    encodedFiles.forEach((file) => {
-        const localOffset = offset;
-        const crc = crc32(file.contentBytes);
-
-        view.setUint32(offset, 0x04034b50, true);
-        offset += 4;
-        view.setUint16(offset, 20, true);
-        offset += 2;
-        view.setUint16(offset, 0, true);
-        offset += 2;
-        view.setUint16(offset, 0, true);
-        offset += 2;
-        view.setUint16(offset, 0, true);
-        offset += 2;
-        view.setUint16(offset, 0, true);
-        offset += 2;
-        view.setUint32(offset, crc, true);
-        offset += 4;
-        view.setUint32(offset, file.contentBytes.length, true);
-        offset += 4;
-        view.setUint32(offset, file.contentBytes.length, true);
-        offset += 4;
-        view.setUint16(offset, file.nameBytes.length, true);
-        offset += 2;
-        view.setUint16(offset, 0, true);
-        offset += 2;
-        new Uint8Array(buffer, offset, file.nameBytes.length).set(file.nameBytes);
-        offset += file.nameBytes.length;
-        new Uint8Array(buffer, offset, file.contentBytes.length).set(file.contentBytes);
-        offset += file.contentBytes.length;
-        centralDirectory.push({ file, crc, localOffset });
-    });
-
-    const centralOffset = offset;
-
-    centralDirectory.forEach(({ file, crc, localOffset }) => {
-        view.setUint32(offset, 0x02014b50, true);
-        offset += 4;
-        view.setUint16(offset, 20, true);
-        offset += 2;
-        view.setUint16(offset, 20, true);
-        offset += 2;
-        view.setUint16(offset, 0, true);
-        offset += 2;
-        view.setUint16(offset, 0, true);
-        offset += 2;
-        view.setUint16(offset, 0, true);
-        offset += 2;
-        view.setUint16(offset, 0, true);
-        offset += 2;
-        view.setUint32(offset, crc, true);
-        offset += 4;
-        view.setUint32(offset, file.contentBytes.length, true);
-        offset += 4;
-        view.setUint32(offset, file.contentBytes.length, true);
-        offset += 4;
-        view.setUint16(offset, file.nameBytes.length, true);
-        offset += 2;
-        view.setUint16(offset, 0, true);
-        offset += 2;
-        view.setUint16(offset, 0, true);
-        offset += 2;
-        view.setUint16(offset, 0, true);
-        offset += 2;
-        view.setUint16(offset, 0, true);
-        offset += 2;
-        view.setUint32(offset, 0, true);
-        offset += 4;
-        view.setUint32(offset, localOffset, true);
-        offset += 4;
-        new Uint8Array(buffer, offset, file.nameBytes.length).set(file.nameBytes);
-        offset += file.nameBytes.length;
-    });
-
-    const centralDirectorySize = offset - centralOffset;
-
-    view.setUint32(offset, 0x06054b50, true);
-    offset += 4;
-    view.setUint16(offset, 0, true);
-    offset += 2;
-    view.setUint16(offset, 0, true);
-    offset += 2;
-    view.setUint16(offset, files.length, true);
-    offset += 2;
-    view.setUint16(offset, files.length, true);
-    offset += 2;
-    view.setUint32(offset, centralDirectorySize, true);
-    offset += 4;
-    view.setUint32(offset, centralOffset, true);
-    offset += 4;
-    view.setUint16(offset, 0, true);
-    writeString(view, offset, "");
-
-    return buffer;
-}
-
-function cellReference(rowIndex: number, columnIndex: number) {
-    let dividend = columnIndex + 1;
-    let columnName = "";
-
-    while (dividend > 0) {
-        const modulo = (dividend - 1) % 26;
-        columnName = String.fromCharCode(65 + modulo) + columnName;
-        dividend = Math.floor((dividend - modulo) / 26);
-    }
-
-    return `${columnName}${rowIndex + 1}`;
-}
-
-function buildSheetXml(sheetRows: string[][]) {
-    const rowsXml = sheetRows
-        .map((row, rowIndex) => {
-            const cellsXml = row
-                .map((cell, columnIndex) => {
-                    const reference = cellReference(rowIndex, columnIndex);
-
-                    return `<c r="${reference}" t="inlineStr"><is><t>${escapeXml(cell)}</t></is></c>`;
-                })
-                .join("");
-
-            return `<row r="${rowIndex + 1}">${cellsXml}</row>`;
-        })
-        .join("");
-
-    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-    <sheetData>${rowsXml}</sheetData>
-</worksheet>`;
-}
-
-function downloadExcelFile(dates: string[], rows: StaffAttendanceRow[]) {
-    const headerCells = ["Name", "Email", ...dates.map(formatColumnDate)];
-    const bodyRows = rows.map((row) => [
-        row.name,
-        row.email,
-        ...dates.map((date) => formatAttendance(row.attendance[date])),
-    ]);
-    const workbookFiles = [
-        {
-            name: "[Content_Types].xml",
-            content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-    <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-    <Default Extension="xml" ContentType="application/xml"/>
-    <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
-    <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
-</Types>`,
-        },
-        {
-            name: "_rels/.rels",
-            content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-    <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
-</Relationships>`,
-        },
-        {
-            name: "xl/workbook.xml",
-            content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-    <sheets>
-        <sheet name="Attendance" sheetId="1" r:id="rId1"/>
-    </sheets>
-</workbook>`,
-        },
-        {
-            name: "xl/_rels/workbook.xml.rels",
-            content: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-    <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-</Relationships>`,
-        },
-        {
-            name: "xl/worksheets/sheet1.xml",
-            content: buildSheetXml([headerCells, ...bodyRows]),
-        },
-    ];
-    const blob = new Blob([createZip(workbookFiles)], {
-        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    const start = dates[0] || getToday();
-    const end = dates[dates.length - 1] || start;
-
-    link.href = url;
-    link.download = `attendance-${start}-to-${end}.xlsx`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.URL.revokeObjectURL(url);
-}
-
 export default function DashboardPage() {
     const { data: session, status } = useSession();
     const today = useMemo(() => getToday(), []);
@@ -353,14 +107,22 @@ export default function DashboardPage() {
         loadAttendance();
     }
 
-    function exportCurrentData() {
+    async function exportCurrentData() {
         if (dates.length === 0 || rows.length === 0) {
             setError("No attendance data available to export");
             return;
         }
 
         setError("");
-        downloadExcelFile(dates, rows);
+
+        const params = new URLSearchParams({ filter: filterType });
+
+        if (filterType === "range") {
+            params.set("startDate", startDate);
+            params.set("endDate", endDate);
+        }
+
+        window.location.href = `/api/admin/attendance/export?${params.toString()}`;
     }
 
     if (status === "loading") {
