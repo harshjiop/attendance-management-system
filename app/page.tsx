@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { LoginForm } from "./(auth)/account/_components/login-form";
 import { formatPunchTime } from "@/lib/india-date";
-
+import { toast } from "sonner";
 type AttendancePunch = {
   type: "IN" | "OUT";
   timestamp: string;
@@ -217,12 +217,14 @@ export default function Home() {
     setIsSaving(true);
     setLocationMessage("Requesting location permission...");
     setLastDistance(null);
+    toast.info("Please allow location permission to mark attendance.");
 
     try {
       const userLocation = await requestCurrentLocation();
       const distance = getDistanceInMeters(userLocation, LAB_LOCATION);
 
       setLastDistance(distance);
+      toast.info(`Checking distance from lab: ${Math.round(distance)}m.`);
 
       if (distance > MAX_ATTENDANCE_DISTANCE_METERS) {
         throw new Error(
@@ -249,10 +251,14 @@ export default function Home() {
 
       setAttendance(result.data || null);
       setIsAlertOpen(false);
+      toast.success(`Attendance marked ${pendingStatus ? "In" : "Out"} successfully.`);
     } catch (error) {
       console.error("Error updating status:", error);
-      setLocationMessage(error instanceof Error ? error.message : "Failed to verify location.");
-      alert(error instanceof Error ? error.message : "Failed to update status. Please try again.");
+      const errorMessage =
+        error instanceof Error ? error.message : "Failed to update status. Please try again.";
+
+      setLocationMessage(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setIsSaving(false);
     }
@@ -263,8 +269,8 @@ export default function Home() {
   }
 
   function showLocationPermissionHelp() {
-    alert(
-      "To reset location permission, open your browser site settings for this website, set Location to Ask or Allow, then refresh the page. On Chrome: click the icon near the address bar > Site settings > Location."
+    toast.info(
+      "Reset location permission from browser site settings, then refresh. Chrome: address bar icon > Site settings > Location."
     );
   }
 
