@@ -6,7 +6,6 @@ import connectDB from "@/db/mongodb";
 import Attendance, { IPunch } from "@/models/attendance.model";
 import UserModel from "@/models/user.model";
 import {
-    formatDisplayDate,
     formatPunchTime,
     getDateKey,
 } from "@/lib/india-date";
@@ -14,6 +13,12 @@ import {
 type SheetFile = {
     name: string;
     content: string;
+};
+
+type ExportDay = {
+    inTime: string;
+    outTime: string;
+    totalHours: string;
 };
 
 function isDateString(value: string) {
@@ -33,6 +38,12 @@ function buildDateRange(startDate: string, endDate: string) {
     return dates;
 }
 
+function formatExportDate(dateKey: string) {
+    const [year, month, day] = dateKey.split("-");
+
+    return `${month}/${day}/${year}`;
+}
+
 function escapeXml(value: string) {
     return value
         .replace(/&/g, "&amp;")
@@ -40,6 +51,45 @@ function escapeXml(value: string) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&apos;");
+}
+
+function getExportDay(punches: IPunch[] = []): ExportDay {
+    const sortedPunches = [...punches].sort(
+        (firstPunch, secondPunch) =>
+            new Date(firstPunch.timestamp).getTime() -
+            new Date(secondPunch.timestamp).getTime()
+    );
+    const inPunch = sortedPunches.find((punch) => punch.type === "IN");
+    const outPunch = [...sortedPunches].reverse().find((punch) => punch.type === "OUT");
+    let totalMinutes = 0;
+    let activeInTime: Date | null = null;
+
+    sortedPunches.forEach((punch) => {
+        if (punch.type === "IN") {
+            activeInTime = new Date(punch.timestamp);
+            return;
+        }
+
+        if (punch.type === "OUT" && activeInTime) {
+            const outTime = new Date(punch.timestamp);
+            const diffMinutes = Math.max(
+                0,
+                Math.round((outTime.getTime() - activeInTime.getTime()) / 60000)
+            );
+
+            totalMinutes += diffMinutes;
+            activeInTime = null;
+        }
+    });
+
+    return {
+        inTime: inPunch ? formatPunchTime(inPunch.timestamp) : "-",
+        outTime: outPunch ? formatPunchTime(outPunch.timestamp) : "-",
+        totalHours:
+            totalMinutes > 0
+                ? Number((totalMinutes / 60).toFixed(2)).toString()
+                : "-",
+    };
 }
 
 function crc32(bytes: Uint8Array) {
@@ -188,7 +238,7 @@ function cellReference(rowIndex: number, columnIndex: number) {
     return `${columnName}${rowIndex + 1}`;
 }
 
-function buildSheetXml(sheetRows: string[][]) {
+function buildSheetXml(sheetRows: string[][], mergeRefs: string[]) {
     const rowsXml = sheetRows
         .map((row, rowIndex) => {
             const cellsXml = row
@@ -202,14 +252,21 @@ function buildSheetXml(sheetRows: string[][]) {
             return `<row r="${rowIndex + 1}">${cellsXml}</row>`;
         })
         .join("");
+    const mergeXml =
+        mergeRefs.length > 0
+            ? `<mergeCells count="${mergeRefs.length}">${mergeRefs
+                .map((ref) => `<mergeCell ref="${ref}"/>`)
+                .join("")}</mergeCells>`
+            : "";
 
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
     <sheetData>${rowsXml}</sheetData>
+    ${mergeXml}
 </worksheet>`;
 }
 
-function buildWorkbook(sheetRows: string[][]) {
+function buildWorkbook(sheetRows: string[][], mergeRefs: string[]) {
     return createZip([
         {
             name: "[Content_Types].xml",
@@ -246,7 +303,7 @@ function buildWorkbook(sheetRows: string[][]) {
         },
         {
             name: "xl/worksheets/sheet1.xml",
-            content: buildSheetXml(sheetRows),
+            content: buildSheetXml(sheetRows, mergeRefs),
         },
     ]);
 }
@@ -316,32 +373,55 @@ export async function GET(request: Request) {
             .select("userId date punches")
             .lean(),
     ]);
-    const attendanceByUser = new Map<string, Map<string, string>>();
+    const attendanceByUser = new Map<string, Map<string, ExportDay>>();
 
     attendanceRecords.forEach((record) => {
         const userId = record.userId.toString();
-        const userAttendance = attendanceByUser.get(userId) || new Map<string, string>();
-        const punches = record.punches
-            .map((punch: IPunch) => `${punch.type.toLowerCase()}/${formatPunchTime(punch.timestamp)}`)
-            .join(" | ");
+        const userAttendance = attendanceByUser.get(userId) || new Map<string, ExportDay>();
 
-        userAttendance.set(record.date, punches || "-");
+        userAttendance.set(record.date, getExportDay(record.punches));
         attendanceByUser.set(userId, userAttendance);
     });
 
+    const firstHeaderRow = ["Name", "Email"];
+    const secondHeaderRow = ["", ""];
+    const mergeRefs = ["A1:A2", "B1:B2"];
+
+    dates.forEach((date, index) => {
+        const startColumnIndex = 2 + index * 3;
+        const endColumnIndex = startColumnIndex + 2;
+
+        firstHeaderRow.push(formatExportDate(date), "", "");
+        secondHeaderRow.push("IN", "Out", "Total (hr)");
+        mergeRefs.push(
+            `${cellReference(0, startColumnIndex)}:${cellReference(0, endColumnIndex)}`
+        );
+    });
+
     const sheetRows = [
-        ["Name", "Email", ...dates.map(formatDisplayDate)],
+        firstHeaderRow,
+        secondHeaderRow,
         ...users.map((user) => {
             const userAttendance = attendanceByUser.get(user._id.toString());
 
             return [
                 user.name,
                 user.email || "",
-                ...dates.map((date) => userAttendance?.get(date) || "-"),
+                ...dates.flatMap((date) => {
+                    const dayAttendance = userAttendance?.get(date);
+
+                    return dayAttendance
+                        ? [
+                            dayAttendance.inTime,
+                            dayAttendance.outTime,
+                            dayAttendance.totalHours,
+                        ]
+                        : ["-", "-", "-"];
+                }),
             ];
         }),
     ];
-    const workbook = buildWorkbook(sheetRows);
+    const workbook = buildWorkbook(sheetRows, mergeRefs);
     const filename = `attendance-${startDate}-to-${endDate}.xlsx`;
 
     return new Response(workbook, {
